@@ -1,0 +1,129 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: grows
+    // Fields:
+    //   - name: string (required)
+    //   - strain: string (optional)
+    //   - seedType: string (required, enum)
+    //   - stage: string (required, enum)
+    //   - stageStartDate: string (required, ISO 8601)
+    //   - environment: string (required, enum)
+    //   - space: string (optional)
+    //   - lighting: string (optional)
+    //   - createdAt: string (required, ISO 8601)
+    //   - userId: string (required, owner UID)
+    //
+    // Collection: grows/{growId}/entries
+    // Fields:
+    //   - growId: string (required)
+    //   - date: string (required, ISO 8601)
+    //   - notes: string (optional)
+    //   - photos: list of strings (optional)
+    //   - fertilizers: list of maps (optional)
+    //   - aiSuggestions: string (optional)
+    //   - detectedStage: string (optional)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "stalkmeta@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function isValidGrow(data) {
+      return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.strain is string && data.strain.size() < 100 &&
+             data.seedType in ['Automatic', 'Photoperiod'] &&
+             data.stage in ['Seedling', 'Vegetative', 'Flowering', 'Harvested'] &&
+             data.stageStartDate is string && data.stageStartDate.size() < 50 &&
+             data.environment in ['Indoor', 'Outdoor'] &&
+             data.space is string && data.space.size() < 100 &&
+             data.lighting is string && data.lighting.size() < 200 &&
+             (!('substrate' in data) || (data.substrate is string && data.substrate.size() < 100)) &&
+             (!('potSize' in data) || (data.potSize is string && data.potSize.size() < 50)) &&
+             (!('estimatedDays' in data) || (data.estimatedDays is int)) &&
+             data.userId is string && data.userId.size() < 128 &&
+             data.createdAt is string && data.createdAt.size() < 50;
+    }
+
+    function isValidEntry(data) {
+      return data.growId is string && data.growId.size() < 128 &&
+             data.date is string && data.date.size() < 50 &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 2000)) &&
+             (!('photos' in data) || (data.photos is list && data.photos.size() <= 10)) &&
+             (!('aiSuggestions' in data) || (data.aiSuggestions is string && data.aiSuggestions.size() < 5000)) &&
+             (!('detectedStage' in data) || (data.detectedStage is string && data.detectedStage.size() < 50)) &&
+             (!('temperature' in data) || (data.temperature is string && data.temperature.size() < 20)) &&
+             (!('humidity' in data) || (data.humidity is string && data.humidity.size() < 20)) &&
+             (!('ph' in data) || (data.ph is string && data.ph.size() < 20)) &&
+             (!('ec' in data) || (data.ec is string && data.ec.size() < 20)) &&
+             (!('height' in data) || (data.height is string && data.height.size() < 20));
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /grows/{growId} {
+      // Allow read if user is the owner or admin
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+      
+      // Allow create if user sets themselves as owner and data is valid
+      allow create: if isAuthenticated() && 
+                    isValidGrow(request.resource.data) && 
+                    request.resource.data.userId == request.auth.uid;
+      
+      // Allow update if user is the owner and doesn't change ownership
+      allow update: if isAuthenticated() && 
+                    isValidGrow(request.resource.data) && 
+                    resource.data.userId == request.auth.uid && 
+                    request.resource.data.userId == request.auth.uid;
+      
+      allow delete: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
+
+      match /entries/{entryId} {
+        // Helper to check parent grow ownership
+        function isParentGrowOwner() {
+          return get(/databases/$(database)/documents/grows/$(growId)).data.userId == request.auth.uid;
+        }
+
+        allow read: if isAuthenticated() && (isParentGrowOwner() || isAdmin());
+        allow create: if isAuthenticated() && isParentGrowOwner() && isValidEntry(request.resource.data);
+        allow update: if isAuthenticated() && isParentGrowOwner() && isValidEntry(request.resource.data);
+        allow delete: if isAuthenticated() && (isParentGrowOwner() || isAdmin());
+      }
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+  }
+}

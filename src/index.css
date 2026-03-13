@@ -1,0 +1,51 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-ink: #141414;
+  --color-line: rgba(255, 255, 255, 0.1);
+}
+
+@layer base {
+  body {
+    @apply bg-black text-zinc-100 antialiased;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  
+  input, textarea {
+    user-select: text;
+  }
+}
+
+@layer components {
+  .hardware-card {
+    @apply bg-zinc-900 border border-white/5 rounded-[32px] shadow-2xl;
+  }
+  
+  .micro-label {
+    @apply text-[10px] font-black text-zinc-500 uppercase tracking-[0.15em];
+  }
+  
+  .data-value {
+    @apply font-mono text-sm tracking-tight;
+  }
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+/* Smooth transitions */
+.page-transition {
+  @apply transition-all duration-300 ease-in-out;
+}

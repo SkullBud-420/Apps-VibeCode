@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "Grow": {
+      "title": "Grow",
+      "description": "Information about a specific cannabis cultivation project.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Name of the grow project." },
+        "strain": { "type": "string", "description": "Strain name." },
+        "seedType": { "type": "string", "enum": ["Automatic", "Photoperiod"], "description": "Type of seed." },
+        "stage": { "type": "string", "enum": ["Seedling", "Vegetative", "Flowering", "Harvested"], "description": "Current stage of the plant." },
+        "stageStartDate": { "type": "string", "format": "date-time", "description": "When the current stage started." },
+        "environment": { "type": "string", "enum": ["Indoor", "Outdoor"], "description": "Growing environment." },
+        "space": { "type": "string", "description": "Description of the growing space." },
+        "lighting": { "type": "string", "description": "Lighting details." },
+        "substrate": { "type": "string", "description": "Type of substrate used." },
+        "potSize": { "type": "string", "description": "Size of the pot." },
+        "estimatedDays": { "type": "integer", "description": "Estimated total days for the cycle." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the grow started." },
+        "userId": { "type": "string", "description": "Owner of the grow." }
+      },
+      "required": ["name", "stage", "userId", "seedType", "stageStartDate"]
+    },
+    "DiaryEntry": {
+      "title": "Diary Entry",
+      "description": "A daily or periodic entry in the grow diary.",
+      "type": "object",
+      "properties": {
+        "growId": { "type": "string", "description": "Reference to the Grow entity." },
+        "date": { "type": "string", "format": "date-time", "description": "Date of the entry." },
+        "notes": { "type": "string", "description": "General notes." },
+        "photos": { "type": "array", "items": { "type": "string" }, "description": "Base64 or URLs of photos." },
+        "fertilizers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "npk": { "type": "string", "description": "NPK ratio (e.g., 10-5-5)." },
+              "amount": { "type": "string" }
+            }
+          }
+        },
+        "aiSuggestions": { "type": "string", "description": "Suggestions provided by AI based on this entry." },
+        "detectedStage": { "type": "string", "description": "Stage detected by AI." },
+        "temperature": { "type": "string", "description": "Temperature at the time of entry." },
+        "humidity": { "type": "string", "description": "Humidity at the time of entry." },
+        "ph": { "type": "string", "description": "pH level." },
+        "ec": { "type": "string", "description": "Electrical Conductivity." },
+        "height": { "type": "string", "description": "Plant height." }
+      },
+      "required": ["growId", "date"]
+    }
+  },
+  "firestore": {
+    "/grows/{growId}": {
+      "schema": "Grow",
+      "description": "Collection of grow projects."
+    },
+    "/grows/{growId}/entries/{entryId}": {
+      "schema": "DiaryEntry",
+      "description": "Sub-collection of diary entries for a grow."
+    }
+  }
+}

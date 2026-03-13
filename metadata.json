@@ -1,0 +1,7 @@
+{
+  "name": "GrowMaster BAN",
+  "description": "Diário de cultivo canábico inteligente com análise de fotos por IA, sugestões personalizadas e acompanhamento de estágio automático.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
