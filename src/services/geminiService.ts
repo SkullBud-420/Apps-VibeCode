@@ -1,6 +1,17 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not defined. Please configure it in the Secrets panel.");
+    }
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+}
 
 export interface AnalysisResult {
   detectedStage: string;
@@ -23,7 +34,7 @@ export async function getDailyRecommendation(
 ): Promise<DailyRecommendation> {
   const model = "gemini-3-flash-preview";
   
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model,
     contents: [{
       parts: [{
@@ -110,7 +121,7 @@ export async function analyzeGrowEntry(
     }
   }
 
-  const response = await ai.models.generateContent({
+  const response = await getAI().models.generateContent({
     model,
     contents: [{ parts }],
     config: {
@@ -118,7 +129,7 @@ export async function analyzeGrowEntry(
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          detectedStage: { type: Type.STRING, description: "One of: Seedling, Vegetative, Flowering, Harvested" },
+          detectedStage: { type: Type.STRING, description: "One of: Seedling, Vegetative, Flowering, Harvested, Curing" },
           suggestions: { type: Type.STRING, description: "Cultivation suggestions in Portuguese" },
           alerts: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of alerts or issues found" },
           idealPH: { type: Type.STRING, description: "Ideal pH range" },

@@ -61,7 +61,7 @@ service cloud.firestore {
       return data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
              data.strain is string && data.strain.size() < 100 &&
              data.seedType in ['Automatic', 'Photoperiod'] &&
-             data.stage in ['Seedling', 'Vegetative', 'Flowering', 'Harvested'] &&
+             data.stage in ['Seedling', 'Vegetative', 'Flowering', 'Harvested', 'Curing'] &&
              data.stageStartDate is string && data.stageStartDate.size() < 50 &&
              data.environment in ['Indoor', 'Outdoor'] &&
              data.space is string && data.space.size() < 100 &&

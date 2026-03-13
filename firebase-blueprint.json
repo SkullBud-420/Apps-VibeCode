@@ -8,7 +8,7 @@
         "name": { "type": "string", "description": "Name of the grow project." },
         "strain": { "type": "string", "description": "Strain name." },
         "seedType": { "type": "string", "enum": ["Automatic", "Photoperiod"], "description": "Type of seed." },
-        "stage": { "type": "string", "enum": ["Seedling", "Vegetative", "Flowering", "Harvested"], "description": "Current stage of the plant." },
+        "stage": { "type": "string", "enum": ["Seedling", "Vegetative", "Flowering", "Harvested", "Curing"], "description": "Current stage of the plant." },
         "stageStartDate": { "type": "string", "format": "date-time", "description": "When the current stage started." },
         "environment": { "type": "string", "enum": ["Indoor", "Outdoor"], "description": "Growing environment." },
         "space": { "type": "string", "description": "Description of the growing space." },
