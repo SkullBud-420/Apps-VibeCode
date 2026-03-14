@@ -33,6 +33,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   signInWithPopup, 
   GoogleAuthProvider, 
+  GithubAuthProvider,
   onAuthStateChanged, 
   signOut,
   User
@@ -500,9 +501,20 @@ export default function App() {
     fetchRecommendation();
   }, [selectedGrow?.id]);
 
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
+  const handleLogin = async (providerType: 'google' | 'github' = 'google') => {
+    const provider = providerType === 'google' ? new GoogleAuthProvider() : new GithubAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      console.error("Erro no login:", error);
+      if (error.code === 'auth/unauthorized-domain') {
+        alert("Domínio não autorizado! Adicione este endereço no Console do Firebase > Authentication > Settings > Authorized Domains.");
+      } else if (error.code === 'auth/operation-not-allowed') {
+        alert(`O provedor ${providerType} não está ativado no Firebase Console.`);
+      } else {
+        alert("Erro ao fazer login: " + error.message);
+      }
+    }
   };
 
   const handleCreateGrow = async () => {
@@ -737,9 +749,23 @@ export default function App() {
         <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">GrowMaster <span className="text-emerald-500">BAN</span></h1>
         <p className="text-zinc-400 max-w-xs mx-auto">Seu diário de cultivo inteligente com análise de IA.</p>
       </motion.div>
-      <Button onClick={handleLogin} className="w-full max-w-xs py-4 text-lg shadow-xl shadow-emerald-600/20">
-        Entrar com Google
-      </Button>
+      <div className="w-full max-w-xs space-y-4">
+        <Button 
+          onClick={() => handleLogin('google')} 
+          className="w-full py-4 text-lg shadow-xl shadow-emerald-600/20 flex items-center justify-center gap-3"
+        >
+          <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
+          Entrar com Google
+        </Button>
+        
+        <button 
+          onClick={() => handleLogin('github')}
+          className="w-full py-4 bg-zinc-800 text-white rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-zinc-700 transition-all active:scale-95 border border-white/10"
+        >
+          <img src="https://github.com/favicon.ico" className="w-5 h-5 invert" alt="GitHub" />
+          Entrar com GitHub
+        </button>
+      </div>
     </div>
   );
 
