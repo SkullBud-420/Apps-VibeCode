@@ -38,6 +38,7 @@ import { analyzeGrowEntry, getDailyRecommendation, DailyRecommendation } from '.
 import ReactMarkdown from 'react-markdown';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
+import { storage } from './services/storageService';
 import { 
   LineChart, 
   Line, 
@@ -184,7 +185,7 @@ const PhotoViewer = ({ photos, initialIndex, onClose }: { photos: string[], init
 
       <div className="absolute bottom-8 flex gap-2">
         {photos.map((_, i) => (
-          <div key={i} className={`w-2 h-2 rounded-full ${i === currentIndex ? 'bg-emerald-500' : 'bg-white/20'}`} />
+          <div key={`dot-${i}`} className={`w-2 h-2 rounded-full ${i === currentIndex ? 'bg-emerald-500' : 'bg-white/20'}`} />
         ))}
       </div>
     </motion.div>
@@ -195,12 +196,14 @@ const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, variant = '
   <AnimatePresence>
     {isOpen && (
       <motion.div 
+        key="confirm-modal-overlay"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-6"
       >
         <motion.div 
+          key="confirm-modal-content"
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
@@ -377,24 +380,25 @@ export default function App() {
   const [dailyRecommendation, setDailyRecommendation] = useState<DailyRecommendation | null>(null);
   const [isFetchingRecommendation, setIsFetchingRecommendation] = useState(false);
 
-  // Load data from LocalStorage on mount
+  // Load data from IndexedDB on mount
   useEffect(() => {
-    const savedData = localStorage.getItem('growmaster_data');
-    if (savedData) {
+    const loadData = async () => {
       try {
-        const parsed = JSON.parse(savedData);
-        setGrows(parsed);
+        const savedGrows = await storage.getAllGrows();
+        setGrows(savedGrows);
       } catch (e) {
-        console.error("Error parsing local data", e);
+        console.error("Error loading data from IndexedDB", e);
+      } finally {
+        setLoading(false);
       }
-    }
-    setLoading(false);
+    };
+    loadData();
   }, []);
 
-  // Save data to LocalStorage whenever grows change
+  // Save data to IndexedDB whenever grows change
   useEffect(() => {
     if (!loading) {
-      localStorage.setItem('growmaster_data', JSON.stringify(grows));
+      storage.saveAllGrows(grows).catch(e => console.error("Error saving to IndexedDB", e));
     }
   }, [grows, loading]);
 
@@ -724,10 +728,10 @@ export default function App() {
       <main className="p-6 max-w-2xl mx-auto">
         {!selectedGrow ? (
           <div className="grid gap-4">
-            {grows.map(grow => (
+            {grows.map((grow, index) => (
               <motion.div
-                key={grow.id}
-                layoutId={grow.id}
+                key={`grow-${grow.id}-${index}`}
+                layoutId={`grow-${grow.id}-${index}`}
                 onClick={() => setSelectedGrow(grow)}
                 className="bg-zinc-900/50 p-5 rounded-3xl border border-white/5 flex items-center justify-between active:scale-[0.98] transition-all hover:bg-zinc-900"
               >
@@ -852,6 +856,7 @@ export default function App() {
               <AnimatePresence mode="wait">
                 {(isFetchingRecommendation || dailyRecommendation) && (
                   <motion.div 
+                    key="daily-recommendation"
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95 }}
@@ -925,8 +930,8 @@ export default function App() {
                   {/* Timeline */}
                   <div className="grid gap-6">
                     <h2 className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.2em] px-2">Histórico Cronológico</h2>
-                    {entries.map(entry => (
-                      <div key={entry.id} className="bg-zinc-900/40 rounded-3xl border border-white/5 overflow-hidden group">
+                    {entries.map((entry, index) => (
+                      <div key={`entry-${entry.id}-${index}`} className="bg-zinc-900/40 rounded-3xl border border-white/5 overflow-hidden group">
                         <div className="p-5 border-b border-white/5 flex justify-between items-center bg-zinc-900/20">
                           <div className="flex items-center gap-2">
                             <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center">
@@ -953,7 +958,7 @@ export default function App() {
                           <div className="flex gap-3 p-5 overflow-x-auto no-scrollbar">
                             {entry.photos.map((photo, i) => (
                               <motion.div 
-                                key={i}
+                                key={`photo-${i}`}
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}
                                 className="relative flex-shrink-0"
@@ -1021,7 +1026,7 @@ export default function App() {
                               <p className="micro-label mb-3">Protocolo de Nutrição</p>
                               <div className="grid gap-2">
                                 {entry.fertilizers.map((f, i) => (
-                                  <div key={i} className="flex items-center justify-between text-[11px] py-2 border-b border-white/5 last:border-0">
+                                  <div key={`fert-${i}`} className="flex items-center justify-between text-[11px] py-2 border-b border-white/5 last:border-0">
                                     <div className="flex items-center gap-2">
                                       <Droplet size={12} className="text-blue-400" />
                                       <span className="font-bold text-zinc-200">{f.name}</span>
@@ -1067,7 +1072,7 @@ export default function App() {
                                   </div>
                                   <ul className="list-disc list-inside text-[11px] text-rose-400/80 space-y-1">
                                     {entry.aiAlerts.map((alert, i) => (
-                                      <li key={i}>{alert}</li>
+                                      <li key={`alert-${i}`}>{alert}</li>
                                     ))}
                                   </ul>
                                 </div>
@@ -1191,7 +1196,7 @@ export default function App() {
                     <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-zinc-800/50 rounded-full" />
                     
                     {entries.filter(e => e.photos.length > 0).map((entry, idx) => (
-                      <div key={entry.id} className="relative pl-12">
+                      <div key={`evo-${entry.id}-${idx}`} className="relative pl-12">
                         <div className="absolute left-3 top-2 w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)] z-10" />
                         <div className="mb-2">
                           <span className="text-[10px] font-black text-zinc-500 uppercase tracking-widest">
@@ -1201,7 +1206,7 @@ export default function App() {
                         <div className="grid grid-cols-2 gap-3">
                           {entry.photos.map((photo, pIdx) => (
                             <motion.div 
-                              key={pIdx}
+                              key={`evo-photo-${pIdx}`}
                               whileHover={{ scale: 1.02 }}
                               className="aspect-square rounded-2xl overflow-hidden border border-white/5 bg-zinc-900"
                             >
@@ -1263,6 +1268,7 @@ export default function App() {
       <AnimatePresence>
         {(isAddingGrow || isEditingGrow) && (
           <motion.div 
+            key="grow-modal"
             initial={{ opacity: 0, y: 100 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 100 }}
@@ -1401,7 +1407,7 @@ export default function App() {
 
                 <div className="flex flex-wrap gap-2">
                   {newGrow.availableFertilizers?.map((fert, i) => (
-                    <div key={i} className="bg-zinc-900 border border-white/5 px-3 py-2 rounded-xl flex items-center gap-2 group">
+                    <div key={`avail-fert-${i}`} className="bg-zinc-900 border border-white/5 px-3 py-2 rounded-xl flex items-center gap-2 group">
                       <FlaskConical size={12} className="text-purple-400" />
                       <div className="flex flex-col">
                         <span className="text-xs text-zinc-300 font-bold">{fert.name}</span>
@@ -1440,6 +1446,7 @@ export default function App() {
 
         {isAddingEntry && (
           <motion.div 
+            key="entry-modal"
             initial={{ opacity: 0, y: 100 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 100 }}
@@ -1462,7 +1469,7 @@ export default function App() {
                     <input type="file" multiple accept="image/*" capture="environment" className="hidden" onChange={handlePhotoUpload} />
                   </label>
                   {newEntry.photos.map((photo, i) => (
-                    <div key={i} className="relative flex-shrink-0">
+                    <div key={`new-photo-${i}`} className="relative flex-shrink-0">
                       <img src={photo} className="w-28 h-28 rounded-3xl object-cover border border-white/10 shadow-xl" referrerPolicy="no-referrer" />
                       <button 
                         onClick={() => setNewEntry(p => ({ ...p, photos: p.photos.filter((_, idx) => idx !== i) }))}
@@ -1546,7 +1553,7 @@ export default function App() {
                   <motion.div 
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
-                    key={i} 
+                    key={`new-fert-${i}`} 
                     className="bg-zinc-900/50 p-5 rounded-3xl border border-white/5 space-y-4 relative"
                   >
                     <button 
@@ -1649,8 +1656,9 @@ export default function App() {
         {/* Backup Modal */}
         <AnimatePresence>
           {showBackupModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+            <div key="backup-modal-container" className="fixed inset-0 z-50 flex items-center justify-center p-6">
               <motion.div 
+                key="backup-modal-overlay"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -1658,6 +1666,7 @@ export default function App() {
                 className="absolute inset-0 bg-black/80 backdrop-blur-sm"
               />
               <motion.div 
+                key="backup-modal-content"
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
