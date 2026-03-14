@@ -27,31 +27,12 @@ import {
   ZoomIn,
   Search,
   AlertTriangle,
-  FlaskConical
+  FlaskConical,
+  Download,
+  Upload,
+  Database
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  GithubAuthProvider,
-  onAuthStateChanged, 
-  signOut,
-  User
-} from 'firebase/auth';
-import { 
-  collection, 
-  addDoc, 
-  query, 
-  where, 
-  onSnapshot, 
-  orderBy, 
-  doc, 
-  updateDoc, 
-  deleteDoc,
-  Timestamp,
-  getDoc
-} from 'firebase/firestore';
-import { auth, db } from './firebase';
 import { Grow, DiaryEntry, Fertilizer } from './types';
 import { analyzeGrowEntry, getDailyRecommendation, DailyRecommendation } from './services/geminiService';
 import ReactMarkdown from 'react-markdown';
@@ -70,58 +51,6 @@ import {
 } from 'recharts';
 
 // --- Error Handling ---
-
-enum OperationType {
-  CREATE = 'create',
-  UPDATE = 'update',
-  DELETE = 'delete',
-  LIST = 'list',
-  GET = 'get',
-  WRITE = 'write',
-}
-
-interface FirestoreErrorInfo {
-  error: string;
-  operationType: OperationType;
-  path: string | null;
-  authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
-  }
-}
-
-function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
-  const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
-    authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
-    },
-    operationType,
-    path
-  }
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  // We can show a toast or alert here if needed, but the instruction says throw.
-  throw new Error(JSON.stringify(errInfo));
-}
 
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, errorInfo: string | null }> {
   constructor(props: any) {
@@ -404,7 +333,6 @@ const Timeline = ({ currentStage, createdAt, estimatedDays }: { currentStage: st
 // --- Main App ---
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [grows, setGrows] = useState<Grow[]>([]);
   const [selectedGrow, setSelectedGrow] = useState<Grow | null>(null);
@@ -415,6 +343,7 @@ export default function App() {
   const [editingEntry, setEditingEntry] = useState<DiaryEntry | null>(null);
   const [viewingPhotos, setViewingPhotos] = useState<{ photos: string[], index: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'grow' | 'entry', id?: string } | null>(null);
+  const [showBackupModal, setShowBackupModal] = useState(false);
 
   // Form States
   const [newGrow, setNewGrow] = useState({ 
@@ -448,36 +377,34 @@ export default function App() {
   const [dailyRecommendation, setDailyRecommendation] = useState<DailyRecommendation | null>(null);
   const [isFetchingRecommendation, setIsFetchingRecommendation] = useState(false);
 
+  // Load data from LocalStorage on mount
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return unsubscribe;
+    const savedData = localStorage.getItem('growmaster_data');
+    if (savedData) {
+      try {
+        const parsed = JSON.parse(savedData);
+        setGrows(parsed);
+      } catch (e) {
+        console.error("Error parsing local data", e);
+      }
+    }
+    setLoading(false);
   }, []);
 
+  // Save data to LocalStorage whenever grows change
   useEffect(() => {
-    if (!user) return;
-    const path = 'grows';
-    const q = query(collection(db, path), where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setGrows(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Grow)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, path);
-    });
-    return unsubscribe;
-  }, [user]);
+    if (!loading) {
+      localStorage.setItem('growmaster_data', JSON.stringify(grows));
+    }
+  }, [grows, loading]);
 
   useEffect(() => {
-    if (!selectedGrow?.id) return;
-    const path = `grows/${selectedGrow.id}/entries`;
-    const q = query(collection(db, 'grows', selectedGrow.id, 'entries'), orderBy('date', 'desc'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setEntries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DiaryEntry)));
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, path);
-    });
-    return unsubscribe;
+    if (!selectedGrow) {
+      setEntries([]);
+      return;
+    }
+    // In local mode, entries are part of the grow object
+    setEntries(selectedGrow.entries || []);
   }, [selectedGrow]);
 
   useEffect(() => {
@@ -501,85 +428,59 @@ export default function App() {
     fetchRecommendation();
   }, [selectedGrow?.id]);
 
-  const handleLogin = async (providerType: 'google' | 'github' = 'google') => {
-    const provider = providerType === 'google' ? new GoogleAuthProvider() : new GithubAuthProvider();
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (error: any) {
-      console.error("Erro no login:", error);
-      if (error.code === 'auth/unauthorized-domain') {
-        alert("Domínio não autorizado! Adicione este endereço no Console do Firebase > Authentication > Settings > Authorized Domains.");
-      } else if (error.code === 'auth/operation-not-allowed') {
-        alert(`O provedor ${providerType} não está ativado no Firebase Console.`);
-      } else {
-        alert("Erro ao fazer login: " + error.message);
-      }
-    }
-  };
 
-  const handleCreateGrow = async () => {
-    if (!user) return;
-    const path = 'grows';
+
+  const handleCreateGrow = () => {
     const now = new Date().toISOString();
-    try {
-      await addDoc(collection(db, path), {
-        ...newGrow,
-        estimatedDays: newGrow.estimatedDays ? parseInt(newGrow.estimatedDays) : null,
-        userId: user.uid,
-        createdAt: now,
-        stageStartDate: now
-      });
-      setIsAddingGrow(false);
-      setNewGrow({ 
-        name: '', 
-        strain: '', 
-        seedType: 'Photoperiod', 
-        stage: 'Seedling', 
-        environment: 'Indoor', 
-        space: '', 
-        lighting: '',
-        substrate: '',
-        potSize: '',
-        estimatedDays: '',
-        availableFertilizers: []
-      });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
-    }
+    const newGrowObj: Grow = {
+      ...newGrow,
+      id: Math.random().toString(36).substr(2, 9),
+      estimatedDays: newGrow.estimatedDays ? parseInt(newGrow.estimatedDays) : null,
+      createdAt: now,
+      stageStartDate: now,
+      entries: []
+    } as any;
+    
+    setGrows(prev => [newGrowObj, ...prev]);
+    setIsAddingGrow(false);
+    setNewGrow({ 
+      name: '', 
+      strain: '', 
+      seedType: 'Photoperiod', 
+      stage: 'Seedling', 
+      environment: 'Indoor', 
+      space: '', 
+      lighting: '',
+      substrate: '',
+      potSize: '',
+      estimatedDays: '',
+      availableFertilizers: []
+    });
   };
 
-  const handleUpdateGrow = async () => {
-    if (!selectedGrow?.id) return;
-    const path = `grows/${selectedGrow.id}`;
-    try {
-      const updateData: any = { 
-        ...newGrow,
-        estimatedDays: newGrow.estimatedDays ? parseInt(newGrow.estimatedDays) : null
-      };
-      // If stage changed manually, update stageStartDate
-      if (newGrow.stage !== selectedGrow.stage) {
-        updateData.stageStartDate = new Date().toISOString();
-      }
-      
-      await updateDoc(doc(db, 'grows', selectedGrow.id), updateData);
-      setSelectedGrow(prev => prev ? { ...prev, ...updateData } : null);
-      setIsEditingGrow(false);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
-    }
-  };
-
-  const handleDeleteGrow = async () => {
+  const handleUpdateGrow = () => {
     if (!selectedGrow?.id) return;
     
-    const path = `grows/${selectedGrow.id}`;
-    try {
-      await deleteDoc(doc(db, 'grows', selectedGrow.id));
-      setSelectedGrow(null);
-      setConfirmDelete(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
+    const updateData: any = { 
+      ...newGrow,
+      estimatedDays: newGrow.estimatedDays ? parseInt(newGrow.estimatedDays) : null
+    };
+    
+    if (newGrow.stage !== selectedGrow.stage) {
+      updateData.stageStartDate = new Date().toISOString();
     }
+    
+    const updatedGrows = grows.map(g => g.id === selectedGrow.id ? { ...g, ...updateData } : g);
+    setGrows(updatedGrows);
+    setSelectedGrow(prev => prev ? { ...prev, ...updateData } : null);
+    setIsEditingGrow(false);
+  };
+
+  const handleDeleteGrow = () => {
+    if (!selectedGrow?.id) return;
+    setGrows(prev => prev.filter(g => g.id !== selectedGrow.id));
+    setSelectedGrow(null);
+    setConfirmDelete(null);
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -604,7 +505,6 @@ export default function App() {
   const handleSaveEntry = async () => {
     if (!selectedGrow?.id) return;
     setIsAnalyzing(true);
-    const path = editingEntry ? `grows/${selectedGrow.id}/entries/${editingEntry.id}` : `grows/${selectedGrow.id}/entries`;
     
     try {
       let analysis = { 
@@ -612,23 +512,23 @@ export default function App() {
         detectedStage: editingEntry?.detectedStage || selectedGrow.stage,
         alerts: editingEntry?.aiAlerts || [],
         idealPH: editingEntry?.idealPH || '',
-        idealEC: editingEntry?.idealEC || '',
+        idealEC: editingEntry?.idealPH || '',
         fertCombination: editingEntry?.fertCombination || ''
       };
       
-      // Only re-analyze if photos or notes changed significantly (simplified check)
       if (!editingEntry || newEntry.photos.length !== editingEntry.photos.length || newEntry.notes !== editingEntry.notes) {
         analysis = await analyzeGrowEntry(newEntry.photos, newEntry.notes, selectedGrow);
       }
       
-      const entryData = {
+      const entryData: DiaryEntry = {
+        id: editingEntry?.id || Math.random().toString(36).substr(2, 9),
         growId: selectedGrow.id,
         date: editingEntry ? editingEntry.date : new Date().toISOString(),
         notes: newEntry.notes,
         photos: newEntry.photos,
         fertilizers: newEntry.fertilizers,
         aiSuggestions: analysis.suggestions,
-        detectedStage: analysis.detectedStage,
+        detectedStage: analysis.detectedStage as any,
         aiAlerts: analysis.alerts,
         idealPH: analysis.idealPH,
         idealEC: analysis.idealEC,
@@ -640,26 +540,32 @@ export default function App() {
         height: newEntry.height
       };
 
-      if (editingEntry?.id) {
-        await updateDoc(doc(db, 'grows', selectedGrow.id, 'entries', editingEntry.id), entryData);
-      } else {
-        await addDoc(collection(db, 'grows', selectedGrow.id, 'entries'), entryData);
-      }
+      const updatedGrows = grows.map(g => {
+        if (g.id === selectedGrow.id) {
+          let updatedEntries = [...(g.entries || [])];
+          if (editingEntry?.id) {
+            updatedEntries = updatedEntries.map(e => e.id === editingEntry.id ? entryData : e);
+          } else {
+            updatedEntries = [entryData, ...updatedEntries];
+          }
 
-      // Update grow stage if AI detected a change
-      if (analysis.detectedStage && analysis.detectedStage !== selectedGrow.stage) {
-        const growPath = `grows/${selectedGrow.id}`;
-        const now = new Date().toISOString();
-        try {
-          await updateDoc(doc(db, 'grows', selectedGrow.id), {
-            stage: analysis.detectedStage,
-            stageStartDate: now
-          });
-        } catch (e) {
-          handleFirestoreError(e, OperationType.UPDATE, growPath);
+          const growUpdate: any = {
+            entries: updatedEntries
+          };
+
+          if (analysis.detectedStage && analysis.detectedStage !== g.stage) {
+            growUpdate.stage = analysis.detectedStage;
+            growUpdate.stageStartDate = new Date().toISOString();
+          }
+
+          return { ...g, ...growUpdate };
         }
-        setSelectedGrow(prev => prev ? { ...prev, stage: analysis.detectedStage as any, stageStartDate: now } : null);
-      }
+        return g;
+      });
+
+      setGrows(updatedGrows);
+      const updatedSelected = updatedGrows.find(g => g.id === selectedGrow.id);
+      if (updatedSelected) setSelectedGrow(updatedSelected);
 
       setIsAddingEntry(false);
       setEditingEntry(null);
@@ -674,21 +580,61 @@ export default function App() {
         height: ''
       });
     } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, path);
+      console.error("Error saving entry:", error);
     } finally {
       setIsAnalyzing(false);
     }
   };
 
-  const handleDeleteEntry = async (entryId: string) => {
+  const handleExportData = () => {
+    const dataStr = JSON.stringify(grows, null, 2);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = `growmaster_backup_${format(new Date(), 'yyyy-MM-dd')}.json`;
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+  };
+
+  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const importedData = JSON.parse(event.target?.result as string);
+        if (Array.isArray(importedData)) {
+          if (window.confirm("Isso irá substituir seus dados atuais. Deseja continuar?")) {
+            setGrows(importedData);
+            alert("Dados importados com sucesso!");
+          }
+        } else {
+          alert("Arquivo de backup inválido.");
+        }
+      } catch (err) {
+        alert("Erro ao ler o arquivo de backup.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDeleteEntry = (entryId: string) => {
     if (!selectedGrow?.id) return;
-    const path = `grows/${selectedGrow.id}/entries/${entryId}`;
-    try {
-      await deleteDoc(doc(db, 'grows', selectedGrow.id, 'entries', entryId));
-      setConfirmDelete(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
-    }
+    const updatedGrows = grows.map(g => {
+      if (g.id === selectedGrow.id) {
+        return {
+          ...g,
+          entries: (g.entries || []).filter(e => e.id !== entryId)
+        };
+      }
+      return g;
+    });
+    setGrows(updatedGrows);
+    const updatedSelected = updatedGrows.find(g => g.id === selectedGrow.id);
+    if (updatedSelected) setSelectedGrow(updatedSelected);
+    setConfirmDelete(null);
   };
 
   const openEditGrow = () => {
@@ -735,40 +681,6 @@ export default function App() {
     </div>
   );
 
-  if (!user) return (
-    <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-center">
-      <motion.div 
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="mb-8"
-      >
-        <div className="w-24 h-24 bg-emerald-500/20 rounded-3xl flex items-center justify-center mb-6 mx-auto relative">
-          <Leaf className="text-emerald-500" size={48} />
-          <div className="absolute -bottom-2 -right-2 bg-emerald-600 text-[10px] font-black px-2 py-1 rounded-md text-white shadow-lg">BAN</div>
-        </div>
-        <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">GrowMaster <span className="text-emerald-500">BAN</span></h1>
-        <p className="text-zinc-400 max-w-xs mx-auto">Seu diário de cultivo inteligente com análise de IA.</p>
-      </motion.div>
-      <div className="w-full max-w-xs space-y-4">
-        <Button 
-          onClick={() => handleLogin('google')} 
-          className="w-full py-4 text-lg shadow-xl shadow-emerald-600/20 flex items-center justify-center gap-3"
-        >
-          <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
-          Entrar com Google
-        </Button>
-        
-        <button 
-          onClick={() => handleLogin('github')}
-          className="w-full py-4 bg-zinc-800 text-white rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-zinc-700 transition-all active:scale-95 border border-white/10"
-        >
-          <img src="https://github.com/favicon.ico" className="w-5 h-5 invert" alt="GitHub" />
-          Entrar com GitHub
-        </button>
-      </div>
-    </div>
-  );
-
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-black text-zinc-100 font-sans pb-24 selection:bg-emerald-500/30">
@@ -799,8 +711,12 @@ export default function App() {
               <Settings size={20} />
             </button>
           )}
-          <button onClick={() => signOut(auth)} className="p-2 hover:bg-zinc-800 rounded-full text-zinc-500">
-            <LogOut size={20} />
+          <button 
+            onClick={() => setShowBackupModal(true)}
+            className="p-2 hover:bg-zinc-800 rounded-full text-zinc-400"
+            title="Backup"
+          >
+            <Database size={20} />
           </button>
         </div>
       </header>
@@ -1729,6 +1645,54 @@ export default function App() {
           }}
           onCancel={() => setConfirmDelete(null)}
         />
+
+        {/* Backup Modal */}
+        <AnimatePresence>
+          {showBackupModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-6">
+              <motion.div 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setShowBackupModal(false)}
+                className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              />
+              <motion.div 
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="bg-zinc-900 border border-white/10 rounded-3xl p-6 w-full max-w-sm relative z-10"
+              >
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-xl font-bold">Backup de Dados</h3>
+                  <button onClick={() => setShowBackupModal(false)} className="text-zinc-500">
+                    <X size={24} />
+                  </button>
+                </div>
+                
+                <p className="text-sm text-zinc-400 mb-6">
+                  Como o app não usa login, seus dados ficam salvos apenas neste aparelho. Use as opções abaixo para garantir que não perderá nada.
+                </p>
+
+                <div className="space-y-3">
+                  <button 
+                    onClick={handleExportData}
+                    className="w-full py-4 bg-emerald-500 text-black rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-emerald-400 transition-all"
+                  >
+                    <Download size={20} />
+                    Exportar Backup (.json)
+                  </button>
+                  
+                  <label className="w-full py-4 bg-zinc-800 text-white rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-zinc-700 transition-all border border-white/5 cursor-pointer">
+                    <Upload size={20} />
+                    Importar Backup
+                    <input type="file" accept=".json" onChange={handleImportData} className="hidden" />
+                  </label>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </AnimatePresence>
 
       {/* Keyboard Spacer for Android */}

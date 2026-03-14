@@ -40,4 +40,5 @@ export interface Grow {
   createdAt: string;
   userId: string;
   availableFertilizers?: { name: string; npk?: string }[];
+  entries?: DiaryEntry[];
 }
