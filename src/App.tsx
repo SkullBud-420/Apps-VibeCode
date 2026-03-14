@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import QuickPinchZoom, { make3dTransformValue } from 'react-quick-pinch-zoom';
 import { 
   Plus, 
   Camera, 
@@ -126,8 +127,6 @@ const Input = ({ label, value, onChange, type = "text", placeholder = "", multil
   </div>
 );
 
-import QuickPinchZoom, { make3dTransformValue } from 'react-quick-pinch-zoom';
-
 const PhotoViewer = ({ photos, initialIndex, onClose }: { photos: string[], initialIndex: number, onClose: () => void }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const imgRef = useRef<HTMLImageElement>(null);
@@ -180,7 +179,7 @@ const PhotoViewer = ({ photos, initialIndex, onClose }: { photos: string[], init
 
       <div className="absolute bottom-8 flex gap-2 z-10">
         {photos.map((_, i) => (
-          <div key={`dot-${i}`} className={`w-2 h-2 rounded-full transition-all ${i === currentIndex ? 'bg-emerald-500 w-4' : 'bg-white/20'}`} />
+          <div key={`pv-dot-${i}`} className={`w-2 h-2 rounded-full transition-all ${i === currentIndex ? 'bg-emerald-500 w-4' : 'bg-white/20'}`} />
         ))}
       </div>
     </motion.div>
@@ -988,7 +987,7 @@ export default function App() {
                           <div className="flex gap-3 p-5 overflow-x-auto no-scrollbar">
                             {entry.photos.map((photo, i) => (
                               <motion.div 
-                                key={`photo-${i}`}
+                                key={`entry-photo-${entry.id}-${i}`}
                                 whileHover={{ scale: 1.05 }}
                                 whileTap={{ scale: 0.95 }}
                                 className="relative flex-shrink-0"
@@ -1056,7 +1055,7 @@ export default function App() {
                               <p className="micro-label mb-3">Protocolo de Nutrição</p>
                               <div className="grid gap-2">
                                 {entry.fertilizers.map((f, i) => (
-                                  <div key={`fert-${i}`} className="flex items-center justify-between text-[11px] py-2 border-b border-white/5 last:border-0">
+                                  <div key={`fert-${entry.id}-${i}`} className="flex items-center justify-between text-[11px] py-2 border-b border-white/5 last:border-0">
                                     <div className="flex items-center gap-2">
                                       <Droplet size={12} className="text-blue-400" />
                                       <span className="font-bold text-zinc-200">{f.name}</span>
@@ -1111,7 +1110,7 @@ export default function App() {
                                   </div>
                                   <ul className="list-disc list-inside text-[11px] text-rose-400/80 space-y-1">
                                     {entry.aiAlerts.map((alert, i) => (
-                                      <li key={`alert-${i}`}>{alert}</li>
+                                      <li key={`alert-${entry.id}-${i}`}>{alert}</li>
                                     ))}
                                   </ul>
                                 </div>
@@ -1245,7 +1244,7 @@ export default function App() {
                         <div className="grid grid-cols-2 gap-3">
                           {entry.photos.map((photo, pIdx) => (
                             <motion.div 
-                              key={`evo-photo-${pIdx}`}
+                              key={`evo-photo-${entry.id}-${pIdx}`}
                               whileHover={{ scale: 1.02 }}
                               className="aspect-square rounded-2xl overflow-hidden border border-white/5 bg-zinc-900"
                             >
