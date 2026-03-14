@@ -31,9 +31,8 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  signInWithRedirect,
-  getRedirectResult,
-  GoogleAuthProvider, 
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
   onAuthStateChanged, 
   signOut,
   User
@@ -449,7 +448,6 @@ export default function App() {
   const [isFetchingRecommendation, setIsFetchingRecommendation] = useState(false);
 
   useEffect(() => {
-    getRedirectResult(auth).catch(() => {});
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -502,9 +500,50 @@ export default function App() {
     fetchRecommendation();
   }, [selectedGrow?.id]);
 
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authLoading, setAuthLoading] = useState(false);
+
   const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithRedirect(auth, provider);
+    setAuthError('');
+    setAuthLoading(true);
+    try {
+      await signInWithEmailAndPassword(auth, authEmail, authPassword);
+    } catch (e: any) {
+      if (e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password' || e.code === 'auth/user-not-found') {
+        setAuthError('Email ou senha incorretos.');
+      } else if (e.code === 'auth/invalid-email') {
+        setAuthError('Email inválido.');
+      } else {
+        setAuthError('Erro ao entrar. Tente novamente.');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleRegister = async () => {
+    setAuthError('');
+    if (authPassword.length < 6) {
+      setAuthError('A senha deve ter pelo menos 6 caracteres.');
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      await createUserWithEmailAndPassword(auth, authEmail, authPassword);
+    } catch (e: any) {
+      if (e.code === 'auth/email-already-in-use') {
+        setAuthError('Este email já está cadastrado.');
+      } else if (e.code === 'auth/invalid-email') {
+        setAuthError('Email inválido.');
+      } else {
+        setAuthError('Erro ao cadastrar. Tente novamente.');
+      }
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleCreateGrow = async () => {
@@ -739,9 +778,45 @@ export default function App() {
         <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">GrowMaster <span className="text-emerald-500">BAN</span></h1>
         <p className="text-zinc-400 max-w-xs mx-auto">Seu diário de cultivo inteligente com análise de IA.</p>
       </motion.div>
-      <Button onClick={handleLogin} className="w-full max-w-xs py-4 text-lg shadow-xl shadow-emerald-600/20">
-        Entrar com Google
-      </Button>
+
+      <div className="w-full max-w-xs flex flex-col gap-3">
+        <input
+          type="email"
+          placeholder="Email"
+          value={authEmail}
+          onChange={e => setAuthEmail(e.target.value)}
+          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+        />
+        <input
+          type="password"
+          placeholder="Senha (mínimo 6 caracteres)"
+          value={authPassword}
+          onChange={e => setAuthPassword(e.target.value)}
+          className="w-full bg-zinc-900 border border-zinc-700 rounded-xl px-4 py-3 text-white placeholder-zinc-500 focus:outline-none focus:border-emerald-500"
+        />
+        {authError ? (
+          <p className="text-rose-400 text-sm text-center">{authError}</p>
+        ) : null}
+        {authMode === 'login' ? (
+          <>
+            <Button onClick={handleLogin} disabled={authLoading} className="w-full py-4 text-lg shadow-xl shadow-emerald-600/20">
+              {authLoading ? 'Entrando...' : 'Entrar'}
+            </Button>
+            <button onClick={() => { setAuthMode('register'); setAuthError(''); }} className="text-zinc-400 text-sm hover:text-emerald-400 transition-colors">
+              Não tem conta? <span className="text-emerald-500 font-semibold">Cadastre-se</span>
+            </button>
+          </>
+        ) : (
+          <>
+            <Button onClick={handleRegister} disabled={authLoading} className="w-full py-4 text-lg shadow-xl shadow-emerald-600/20">
+              {authLoading ? 'Cadastrando...' : 'Criar Conta'}
+            </Button>
+            <button onClick={() => { setAuthMode('login'); setAuthError(''); }} className="text-zinc-400 text-sm hover:text-emerald-400 transition-colors">
+              Já tem conta? <span className="text-emerald-500 font-semibold">Entrar</span>
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 
