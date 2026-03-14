@@ -13,12 +13,12 @@ import {
   CheckCircle2,
   Calendar, 
   Settings, 
-  LogOut,
   ChevronRight, 
   ChevronLeft, 
   X, 
   Save, 
   Trash2, 
+  LogOut, 
   Sun, 
   Maximize2, 
   Droplet,
@@ -30,27 +30,27 @@ import {
   FlaskConical
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  signInWithPopup,
-  GoogleAuthProvider,
-  onAuthStateChanged,
+import { 
+  signInWithPopup, 
+  GoogleAuthProvider, 
+  onAuthStateChanged, 
   signOut,
   User
 } from 'firebase/auth';
-import {
-  collection,
-  addDoc,
-  query,
-  where,
-  onSnapshot,
-  orderBy,
-  doc,
-  updateDoc,
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  where, 
+  onSnapshot, 
+  orderBy, 
+  doc, 
+  updateDoc, 
   deleteDoc,
+  Timestamp,
   getDoc
 } from 'firebase/firestore';
 import { auth, db } from './firebase';
-
 import { Grow, DiaryEntry, Fertilizer } from './types';
 import { analyzeGrowEntry, getDailyRecommendation, DailyRecommendation } from './services/geminiService';
 import ReactMarkdown from 'react-markdown';
@@ -70,11 +70,91 @@ import {
 
 // --- Error Handling ---
 
-function handleFirestoreError(error: unknown) {
-  console.error('Firestore Error:', error);
-  throw error;
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
 }
 
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  // We can show a toast or alert here if needed, but the instruction says throw.
+  throw new Error(JSON.stringify(errInfo));
+}
+
+class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean, errorInfo: string | null }> {
+  constructor(props: any) {
+    super(props);
+    this.state = { hasError: false, errorInfo: null };
+  }
+
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, errorInfo: error.message };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      let displayMessage = "Ocorreu um erro inesperado.";
+      try {
+        const parsed = JSON.parse(this.state.errorInfo || "");
+        if (parsed.error && parsed.error.includes("permission-denied")) {
+          displayMessage = "Você não tem permissão para realizar esta ação ou acessar estes dados.";
+        }
+      } catch (e) {
+        // Not JSON
+      }
+      return (
+        <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-center">
+          <X size={48} className="text-rose-500 mb-4" />
+          <h2 className="text-xl font-bold mb-2">Ops! Algo deu errado</h2>
+          <p className="text-zinc-400 mb-6">{displayMessage}</p>
+          <Button onClick={() => window.location.reload()}>Recarregar App</Button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 // --- Components ---
 
@@ -328,7 +408,6 @@ export default function App() {
   const [grows, setGrows] = useState<Grow[]>([]);
   const [selectedGrow, setSelectedGrow] = useState<Grow | null>(null);
   const [entries, setEntries] = useState<DiaryEntry[]>([]);
-
   const [isAddingGrow, setIsAddingGrow] = useState(false);
   const [isEditingGrow, setIsEditingGrow] = useState(false);
   const [isAddingEntry, setIsAddingEntry] = useState(false);
@@ -378,22 +457,27 @@ export default function App() {
 
   useEffect(() => {
     if (!user) return;
-    const q = query(collection(db, 'grows'), where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+    const path = 'grows';
+    const q = query(collection(db, path), where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setGrows(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Grow)));
-    }, handleFirestoreError);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
+    });
     return unsubscribe;
   }, [user]);
 
   useEffect(() => {
-    if (!selectedGrow?.id) { setEntries([]); return; }
+    if (!selectedGrow?.id) return;
+    const path = `grows/${selectedGrow.id}/entries`;
     const q = query(collection(db, 'grows', selectedGrow.id, 'entries'), orderBy('date', 'desc'));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setEntries(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as DiaryEntry)));
-    }, handleFirestoreError);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, path);
+    });
     return unsubscribe;
-  }, [selectedGrow?.id]);
-
+  }, [selectedGrow]);
 
   useEffect(() => {
     if (!selectedGrow) {
@@ -423,9 +507,10 @@ export default function App() {
 
   const handleCreateGrow = async () => {
     if (!user) return;
+    const path = 'grows';
     const now = new Date().toISOString();
     try {
-      await addDoc(collection(db, 'grows'), {
+      await addDoc(collection(db, path), {
         ...newGrow,
         estimatedDays: newGrow.estimatedDays ? parseInt(newGrow.estimatedDays) : null,
         userId: user.uid,
@@ -433,31 +518,56 @@ export default function App() {
         stageStartDate: now
       });
       setIsAddingGrow(false);
-      setNewGrow({ name: '', strain: '', seedType: 'Photoperiod', stage: 'Seedling', environment: 'Indoor', space: '', lighting: '', substrate: '', potSize: '', estimatedDays: '', availableFertilizers: [] });
-    } catch (error) { handleFirestoreError(error); }
+      setNewGrow({ 
+        name: '', 
+        strain: '', 
+        seedType: 'Photoperiod', 
+        stage: 'Seedling', 
+        environment: 'Indoor', 
+        space: '', 
+        lighting: '',
+        substrate: '',
+        potSize: '',
+        estimatedDays: '',
+        availableFertilizers: []
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, path);
+    }
   };
 
   const handleUpdateGrow = async () => {
     if (!selectedGrow?.id) return;
+    const path = `grows/${selectedGrow.id}`;
     try {
-      const updateData: any = {
+      const updateData: any = { 
         ...newGrow,
         estimatedDays: newGrow.estimatedDays ? parseInt(newGrow.estimatedDays) : null
       };
-      if (newGrow.stage !== selectedGrow.stage) updateData.stageStartDate = new Date().toISOString();
+      // If stage changed manually, update stageStartDate
+      if (newGrow.stage !== selectedGrow.stage) {
+        updateData.stageStartDate = new Date().toISOString();
+      }
+      
       await updateDoc(doc(db, 'grows', selectedGrow.id), updateData);
       setSelectedGrow(prev => prev ? { ...prev, ...updateData } : null);
       setIsEditingGrow(false);
-    } catch (error) { handleFirestoreError(error); }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, path);
+    }
   };
 
   const handleDeleteGrow = async () => {
     if (!selectedGrow?.id) return;
+    
+    const path = `grows/${selectedGrow.id}`;
     try {
       await deleteDoc(doc(db, 'grows', selectedGrow.id));
       setSelectedGrow(null);
       setConfirmDelete(null);
-    } catch (error) { handleFirestoreError(error); }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -482,18 +592,23 @@ export default function App() {
   const handleSaveEntry = async () => {
     if (!selectedGrow?.id) return;
     setIsAnalyzing(true);
+    const path = editingEntry ? `grows/${selectedGrow.id}/entries/${editingEntry.id}` : `grows/${selectedGrow.id}/entries`;
+    
     try {
-      let analysis = {
-        suggestions: editingEntry?.aiSuggestions || '',
+      let analysis = { 
+        suggestions: editingEntry?.aiSuggestions || '', 
         detectedStage: editingEntry?.detectedStage || selectedGrow.stage,
         alerts: editingEntry?.aiAlerts || [],
         idealPH: editingEntry?.idealPH || '',
         idealEC: editingEntry?.idealEC || '',
         fertCombination: editingEntry?.fertCombination || ''
       };
+      
+      // Only re-analyze if photos or notes changed significantly (simplified check)
       if (!editingEntry || newEntry.photos.length !== editingEntry.photos.length || newEntry.notes !== editingEntry.notes) {
         analysis = await analyzeGrowEntry(newEntry.photos, newEntry.notes, selectedGrow);
       }
+      
       const entryData = {
         growId: selectedGrow.id,
         date: editingEntry ? editingEntry.date : new Date().toISOString(),
@@ -512,21 +627,42 @@ export default function App() {
         ec: newEntry.ec,
         height: newEntry.height
       };
+
       if (editingEntry?.id) {
         await updateDoc(doc(db, 'grows', selectedGrow.id, 'entries', editingEntry.id), entryData);
       } else {
         await addDoc(collection(db, 'grows', selectedGrow.id, 'entries'), entryData);
       }
+
+      // Update grow stage if AI detected a change
       if (analysis.detectedStage && analysis.detectedStage !== selectedGrow.stage) {
+        const growPath = `grows/${selectedGrow.id}`;
         const now = new Date().toISOString();
-        await updateDoc(doc(db, 'grows', selectedGrow.id), { stage: analysis.detectedStage, stageStartDate: now });
+        try {
+          await updateDoc(doc(db, 'grows', selectedGrow.id), {
+            stage: analysis.detectedStage,
+            stageStartDate: now
+          });
+        } catch (e) {
+          handleFirestoreError(e, OperationType.UPDATE, growPath);
+        }
         setSelectedGrow(prev => prev ? { ...prev, stage: analysis.detectedStage as any, stageStartDate: now } : null);
       }
+
       setIsAddingEntry(false);
       setEditingEntry(null);
-      setNewEntry({ notes: '', photos: [], fertilizers: [], temperature: '', humidity: '', ph: '', ec: '', height: '' });
+      setNewEntry({ 
+        notes: '', 
+        photos: [], 
+        fertilizers: [],
+        temperature: '',
+        humidity: '',
+        ph: '',
+        ec: '',
+        height: ''
+      });
     } catch (error) {
-      console.error('Error saving entry:', error);
+      handleFirestoreError(error, OperationType.WRITE, path);
     } finally {
       setIsAnalyzing(false);
     }
@@ -534,10 +670,13 @@ export default function App() {
 
   const handleDeleteEntry = async (entryId: string) => {
     if (!selectedGrow?.id) return;
+    const path = `grows/${selectedGrow.id}/entries/${entryId}`;
     try {
       await deleteDoc(doc(db, 'grows', selectedGrow.id, 'entries', entryId));
       setConfirmDelete(null);
-    } catch (error) { handleFirestoreError(error); }
+    } catch (error) {
+      handleFirestoreError(error, OperationType.DELETE, path);
+    }
   };
 
   const openEditGrow = () => {
@@ -575,7 +714,10 @@ export default function App() {
 
   if (loading) return (
     <div className="min-h-screen bg-black flex items-center justify-center">
-      <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
+      <motion.div 
+        animate={{ rotate: 360 }} 
+        transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+      >
         <Leaf className="text-emerald-500" size={48} />
       </motion.div>
     </div>
@@ -583,7 +725,11 @@ export default function App() {
 
   if (!user) return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center p-6 text-center">
-      <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="mb-8">
+      <motion.div 
+        initial={{ scale: 0.8, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        className="mb-8"
+      >
         <div className="w-24 h-24 bg-emerald-500/20 rounded-3xl flex items-center justify-center mb-6 mx-auto relative">
           <Leaf className="text-emerald-500" size={48} />
           <div className="absolute -bottom-2 -right-2 bg-emerald-600 text-[10px] font-black px-2 py-1 rounded-md text-white shadow-lg">BAN</div>
@@ -594,11 +740,11 @@ export default function App() {
       <Button onClick={handleLogin} className="w-full max-w-xs py-4 text-lg shadow-xl shadow-emerald-600/20">
         Entrar com Google
       </Button>
-      <p className="text-zinc-600 text-xs mt-4 max-w-xs">Ao entrar, seus dados ficam salvos na nuvem e acessíveis em qualquer aparelho.</p>
     </div>
   );
 
   return (
+    <ErrorBoundary>
       <div className="min-h-screen bg-black text-zinc-100 font-sans pb-24 selection:bg-emerald-500/30">
       {/* Header */}
       <header className="p-6 flex items-center justify-between sticky top-0 bg-black/80 backdrop-blur-xl border-b border-white/5 z-30">
@@ -1562,5 +1708,6 @@ export default function App() {
       {/* Keyboard Spacer for Android */}
       <div className="h-20" />
     </div>
+    </ErrorBoundary>
   );
 }
