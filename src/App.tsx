@@ -1742,6 +1742,7 @@ export default function App() {
         </AnimatePresence>
       </AnimatePresence>
 
+      {/* API Key Debug Modal */}
       <div className="h-20" />
     </div>
     </ErrorBoundary>
