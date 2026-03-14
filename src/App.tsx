@@ -1742,7 +1742,7 @@ export default function App() {
         </AnimatePresence>
       </AnimatePresence>
 
-      {/* API Key Debug Modal */}
+      {/* Keyboard Spacer for Android */}
       <div className="h-20" />
     </div>
     </ErrorBoundary>

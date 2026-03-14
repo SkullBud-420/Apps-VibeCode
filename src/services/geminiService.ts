@@ -1,8 +1,17 @@
-// ============================================================
-// geminiService.ts
-// Chama /api/ai (servidor Vite/Node) que tem acesso ao process.env
-// O browser nunca toca a chave API — zero configuração pelo usuário
-// ============================================================
+import { GoogleGenAI, Type } from "@google/genai";
+
+let aiInstance: GoogleGenAI | null = null;
+
+function getAI() {
+  if (!aiInstance) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY is not defined. Please configure it in the Secrets panel.");
+    }
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+}
 
 export interface AnalysisResult {
   detectedStage: string;
@@ -19,136 +28,149 @@ export interface DailyRecommendation {
   actionable: string;
 }
 
-async function callAI(prompt: string, schema: any, parts?: any[]): Promise<any> {
-  const textPart = { text: prompt };
-  const contentParts = parts ? [textPart, ...parts] : [textPart];
-
-  const res = await fetch('/api/ai', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: 'gemini-2.0-flash',
-      contents: [{ parts: contentParts }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: schema,
-      },
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `Erro ${res.status}`);
-  }
-
-  const data = await res.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Resposta vazia da IA.');
-  return JSON.parse(text);
-}
-
-// ─── Daily Recommendation ────────────────────────────────────
-
 export async function getDailyRecommendation(
   growInfo: any,
   lastEntries: any[]
 ): Promise<DailyRecommendation> {
-  const fallback: DailyRecommendation = {
-    tip: 'Continue monitorando suas plantas e mantendo o ambiente estável.',
-    priority: 'Low',
-    actionable: 'Verifique a umidade do solo.',
-  };
-
+  const model = "gemini-3-flash-preview";
+  
   try {
-    const prompt = `Gere uma recomendação diária de cultivo de cannabis em Português.
-Cultivo: ${JSON.stringify(growInfo)}
-Últimos 3 registros: ${JSON.stringify(lastEntries.slice(0, 3))}
-Data: ${new Date().toISOString()}
-Fertilizantes disponíveis: ${growInfo.availableFertilizers?.map((f: any) => `${f.name}${f.npk ? ` (NPK:${f.npk})` : ''}`).join(', ') || 'Nenhum'}`;
+    const response = await getAI().models.generateContent({
+      model,
+      contents: [{
+        parts: [{
+          text: `Generate a daily cultivation recommendation for this cannabis plant.
+          Grow Info: ${JSON.stringify(growInfo)}
+          Last 3 Diary Entries: ${JSON.stringify(lastEntries.slice(0, 3))}
+          Current Date: ${new Date().toISOString()}
+          
+          Consider:
+          1. The current stage of the plant.
+          2. Any issues or metrics reported in recent entries.
+          3. The environment (Indoor/Outdoor).
+          4. Available fertilizers: ${growInfo.availableFertilizers?.map((f: any) => `${f.name}${f.npk ? ` (NPK: ${f.npk})` : ''}`).join(', ') || 'None'}
+          
+          Provide:
+          - A concise daily tip.
+          - A priority level (Low, Medium, High).
+          - A specific actionable task for today.
+          
+          Respond in Portuguese.`
+        }]
+      }],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            tip: { type: Type.STRING, description: "Daily cultivation tip" },
+            priority: { type: Type.STRING, enum: ["Low", "Medium", "High"], description: "Priority level" },
+            actionable: { type: Type.STRING, description: "Specific task for today" }
+          },
+          required: ["tip", "priority", "actionable"]
+        }
+      }
+    });
 
-    const schema = {
-      type: 'object',
-      properties: {
-        tip: { type: 'string' },
-        priority: { type: 'string', enum: ['Low', 'Medium', 'High'] },
-        actionable: { type: 'string' },
-      },
-      required: ['tip', 'priority', 'actionable'],
-    };
-
-    return await callAI(prompt, schema);
+    return JSON.parse(response.text || '{}') as DailyRecommendation;
   } catch (e) {
-    console.error('getDailyRecommendation failed:', e);
-    return fallback;
+    console.error("AI Recommendation failed:", e);
+    return {
+      tip: "Continue monitorando suas plantas e mantendo o ambiente estável.",
+      priority: "Low",
+      actionable: "Verifique a umidade do solo."
+    };
   }
 }
-
-// ─── Grow Entry Analysis ──────────────────────────────────────
 
 export async function analyzeGrowEntry(
   photos: string[],
   notes: string,
   growInfo: any
 ): Promise<AnalysisResult> {
-  const fallback: AnalysisResult = {
-    detectedStage: growInfo.stage,
-    suggestions: 'Análise indisponível no momento. Suas notas foram salvas.',
-    alerts: [],
-    idealPH: 'N/A',
-    idealEC: 'N/A',
-    fertCombination: 'N/A',
-  };
-
+  const model = "gemini-3-flash-preview";
+  
   try {
-    const prompt = `Analise este registro de cultivo de cannabis.
-Notas: ${notes || 'Nenhuma nota fornecida.'}
-Cultivo: ${JSON.stringify(growInfo)}
-Semente: ${growInfo.seedType} | Estágio: ${growInfo.stage}
-Fertilizantes disponíveis: ${growInfo.availableFertilizers?.map((f: any) => `${f.name}${f.npk ? ` (NPK:${f.npk})` : ''}`).join(', ') || 'Nenhum'}
+    const parts: any[] = [
+      { text: `Analise este registro de cultivo de cannabis. 
+      Notas do Cultivador: ${notes || "Nenhuma nota fornecida."}
+      Informações do Cultivo: ${JSON.stringify(growInfo)}
+      Tipo de Semente: ${growInfo.seedType}
+      Estágio Atual: ${growInfo.stage}
+      Fertilizantes Disponíveis (Inventário): ${growInfo.availableFertilizers?.map((f: any) => `${f.name}${f.npk ? ` (NPK: ${f.npk})` : ''}`).join(', ') || 'Nenhum especificado'}
+      
+      Com base nas fotos e informações fornecidas:
+      1. Identifique o estágio de crescimento atual (Seedling, Vegetative, Flowering, Harvested, Curing).
+      2. Forneça sugestões específicas de cultivo em português.
+      3. IMPORTANTE: Sugira a MELHOR combinação de fertilizantes usando APENAS os "Fertilizantes Disponíveis" listados acima. 
+      4. NOTA: "Chorume" é um fertilizante orgânico válido, trate-o como tal.
+      5. Forneça os níveis IDEAIS de pH e EC para este estágio específico e tipo de semente.
+      6. Se detectar qualquer problema (folhas amareladas, pragas, etc.), liste-os em "alerts".
+      
+      Responda estritamente em formato JSON.` }
+    ];
 
-Analise as fotos e forneça:
-1. Estágio detectado (Seedling/Vegetative/Flowering/Harvested/Curing)
-2. Sugestões específicas em português
-3. Melhor combinação dos fertilizantes DISPONÍVEIS listados acima
-4. "Chorume" é fertilizante orgânico válido
-5. pH e EC ideais para este estágio
-6. Lista de problemas detectados (folhas amareladas, pragas, etc.)`;
-
-    const schema = {
-      type: 'object',
-      properties: {
-        detectedStage: { type: 'string' },
-        suggestions: { type: 'string' },
-        alerts: { type: 'array', items: { type: 'string' } },
-        idealPH: { type: 'string' },
-        idealEC: { type: 'string' },
-        fertCombination: { type: 'string' },
-      },
-      required: ['detectedStage', 'suggestions', 'alerts', 'idealPH', 'idealEC', 'fertCombination'],
-    };
-
-    // Converte fotos base64 para partes inline
-    const imageParts = photos
-      .filter(p => p.startsWith('data:image'))
-      .map(p => ({
-        inlineData: {
-          mimeType: p.split(';')[0].split(':')[1],
-          data: p.split(',')[1],
-        },
-      }));
-
-    const result = await callAI(prompt, schema, imageParts);
-    if (!Array.isArray(result.alerts)) result.alerts = [];
-    return result;
-
-  } catch (e: any) {
-    console.error('analyzeGrowEntry failed:', e);
-    const msg: string = e?.message || '';
-    if (msg.includes('GEMINI_API_KEY')) {
-      fallback.suggestions = 'Chave API não configurada no servidor. Verifique os Secrets do AI Studio.';
-    } else {
-      fallback.suggestions = `Erro na análise: ${msg}. Suas notas foram salvas.`;
+    for (const photo of photos) {
+      if (photo.startsWith('data:image')) {
+        try {
+          const base64Data = photo.split(',')[1];
+          const mimeType = photo.split(';')[0].split(':')[1];
+          parts.push({
+            inlineData: {
+              data: base64Data,
+              mimeType: mimeType
+            }
+          });
+        } catch (e) {
+          console.error("Error processing photo for AI:", e);
+        }
+      }
     }
-    return fallback;
+
+    const response = await getAI().models.generateContent({
+      model,
+      contents: [{ parts }],
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            detectedStage: { type: Type.STRING, description: "One of: Seedling, Vegetative, Flowering, Harvested, Curing" },
+            suggestions: { type: Type.STRING, description: "Cultivation suggestions in Portuguese" },
+            alerts: { type: Type.ARRAY, items: { type: Type.STRING }, description: "List of alerts or issues found" },
+            idealPH: { type: Type.STRING, description: "Ideal pH range" },
+            idealEC: { type: Type.STRING, description: "Ideal EC range" },
+            fertCombination: { type: Type.STRING, description: "Best combination of available fertilizers" }
+          },
+          required: ["detectedStage", "suggestions", "alerts", "idealPH", "idealEC", "fertCombination"]
+        }
+      }
+    });
+
+    if (!response.text) {
+      throw new Error("Empty response from AI");
+    }
+
+    return JSON.parse(response.text) as AnalysisResult;
+  } catch (e: any) {
+    console.error("AI Analysis failed:", e);
+    
+    let suggestions = "Análise indisponível no momento. Suas notas foram salvas.";
+    const errorMessage = e.message || "";
+    
+    if (errorMessage.includes("API_KEY")) {
+      suggestions = "Chave de API do Gemini não configurada. Verifique as configurações.";
+    } else if (errorMessage.includes("quota")) {
+      suggestions = "Limite de uso da IA atingido. Tente novamente mais tarde.";
+    }
+
+    return {
+      detectedStage: growInfo.stage,
+      suggestions,
+      alerts: [],
+      idealPH: "N/A",
+      idealEC: "N/A",
+      fertCombination: "N/A"
+    };
   }
 }
