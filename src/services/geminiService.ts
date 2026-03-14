@@ -90,39 +90,43 @@ export async function analyzeGrowEntry(
 ): Promise<AnalysisResult> {
   const model = "gemini-3-flash-preview";
   
-  const parts = [
-    { text: `Analyze this cannabis grow entry. 
-    Notes: ${notes}
-    Grow Info: ${JSON.stringify(growInfo)}
-    Seed Type: ${growInfo.seedType}
-    Current Stage: ${growInfo.stage}
-    Available Fertilizers (Inventory): ${growInfo.availableFertilizers?.map((f: any) => `${f.name}${f.npk ? ` (NPK: ${f.npk})` : ''}`).join(', ') || 'None specified'}
-    
-    Based on the photos and info:
-    1. Identify the current growth stage.
-    2. Provide specific cultivation suggestions.
-    3. IMPORTANT: Suggest the BEST combination of fertilizers using ONLY the "Available Fertilizers" listed above. 
-    4. NOTE: "Chorume" (leachate) is a valid organic fertilizer, treat it as such.
-    5. Provide the IDEAL pH and EC levels for this specific stage and seed type.
-    6. If you detect any issues (yellowing, pests, etc.), list them as "alerts".
-    
-    Respond in Portuguese.` }
-  ];
-
-  for (const photo of photos) {
-    if (photo.startsWith('data:image')) {
-      const base64Data = photo.split(',')[1];
-      const mimeType = photo.split(';')[0].split(':')[1];
-      parts.push({
-        inlineData: {
-          data: base64Data,
-          mimeType: mimeType
-        }
-      } as any);
-    }
-  }
-
   try {
+    const parts: any[] = [
+      { text: `Analise este registro de cultivo de cannabis. 
+      Notas do Cultivador: ${notes || "Nenhuma nota fornecida."}
+      Informações do Cultivo: ${JSON.stringify(growInfo)}
+      Tipo de Semente: ${growInfo.seedType}
+      Estágio Atual: ${growInfo.stage}
+      Fertilizantes Disponíveis (Inventário): ${growInfo.availableFertilizers?.map((f: any) => `${f.name}${f.npk ? ` (NPK: ${f.npk})` : ''}`).join(', ') || 'Nenhum especificado'}
+      
+      Com base nas fotos e informações fornecidas:
+      1. Identifique o estágio de crescimento atual (Seedling, Vegetative, Flowering, Harvested, Curing).
+      2. Forneça sugestões específicas de cultivo em português.
+      3. IMPORTANTE: Sugira a MELHOR combinação de fertilizantes usando APENAS os "Fertilizantes Disponíveis" listados acima. 
+      4. NOTA: "Chorume" é um fertilizante orgânico válido, trate-o como tal.
+      5. Forneça os níveis IDEAIS de pH e EC para este estágio específico e tipo de semente.
+      6. Se detectar qualquer problema (folhas amareladas, pragas, etc.), liste-os em "alerts".
+      
+      Responda estritamente em formato JSON.` }
+    ];
+
+    for (const photo of photos) {
+      if (photo.startsWith('data:image')) {
+        try {
+          const base64Data = photo.split(',')[1];
+          const mimeType = photo.split(';')[0].split(':')[1];
+          parts.push({
+            inlineData: {
+              data: base64Data,
+              mimeType: mimeType
+            }
+          });
+        } catch (e) {
+          console.error("Error processing photo for AI:", e);
+        }
+      }
+    }
+
     const response = await getAI().models.generateContent({
       model,
       contents: [{ parts }],
@@ -143,12 +147,26 @@ export async function analyzeGrowEntry(
       }
     });
 
-    return JSON.parse(response.text || '{}') as AnalysisResult;
-  } catch (e) {
+    if (!response.text) {
+      throw new Error("Empty response from AI");
+    }
+
+    return JSON.parse(response.text) as AnalysisResult;
+  } catch (e: any) {
     console.error("AI Analysis failed:", e);
+    
+    let suggestions = "Análise indisponível no momento. Suas notas foram salvas.";
+    const errorMessage = e.message || "";
+    
+    if (errorMessage.includes("API_KEY")) {
+      suggestions = "Chave de API do Gemini não configurada. Verifique as configurações.";
+    } else if (errorMessage.includes("quota")) {
+      suggestions = "Limite de uso da IA atingido. Tente novamente mais tarde.";
+    }
+
     return {
       detectedStage: growInfo.stage,
-      suggestions: "Análise indisponível no momento. Suas notas foram salvas.",
+      suggestions,
       alerts: [],
       idealPH: "N/A",
       idealEC: "N/A",

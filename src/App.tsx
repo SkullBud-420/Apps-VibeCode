@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Plus, 
   Camera, 
@@ -126,10 +126,18 @@ const Input = ({ label, value, onChange, type = "text", placeholder = "", multil
   </div>
 );
 
+import QuickPinchZoom, { make3dTransformValue } from 'react-quick-pinch-zoom';
+
 const PhotoViewer = ({ photos, initialIndex, onClose }: { photos: string[], initialIndex: number, onClose: () => void }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
-  const [zoom, setZoom] = useState(1);
-  const constraintsRef = useRef(null);
+  const imgRef = useRef<HTMLImageElement>(null);
+
+  const onUpdate = useCallback(({ x, y, scale }: any) => {
+    if (imgRef.current) {
+      const value = make3dTransformValue({ x, y, scale });
+      imgRef.current.style.setProperty('transform', value);
+    }
+  }, []);
 
   const next = () => setCurrentIndex((prev) => (prev + 1) % photos.length);
   const prev = () => setCurrentIndex((prev) => (prev - 1 + photos.length) % photos.length);
@@ -142,50 +150,37 @@ const PhotoViewer = ({ photos, initialIndex, onClose }: { photos: string[], init
       className="fixed inset-0 z-50 bg-black flex flex-col items-center justify-center"
     >
       <div className="absolute top-4 right-4 z-50 flex gap-2">
-        <button onClick={() => setZoom(z => z === 1 ? 2 : 1)} className="p-2 bg-white/10 rounded-full text-white">
-          <ZoomIn size={24} />
-        </button>
-        <button onClick={onClose} className="p-2 bg-white/10 rounded-full text-white">
+        <button onClick={onClose} className="p-2 bg-white/10 rounded-full text-white backdrop-blur-md">
           <X size={24} />
         </button>
       </div>
 
-      <div className="relative w-full h-full flex items-center justify-center overflow-hidden" ref={constraintsRef}>
-        <AnimatePresence mode="wait">
-          <motion.img
-            key={currentIndex}
+      <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+        <QuickPinchZoom onUpdate={onUpdate} containerProps={{ className: 'w-full h-full' }}>
+          <img
+            ref={imgRef}
             src={photos[currentIndex]}
-            initial={{ x: 300, opacity: 0 }}
-            animate={{ x: 0, opacity: 1, scale: zoom }}
-            exit={{ x: -300, opacity: 0 }}
-            drag={zoom === 1 ? "x" : true}
-            dragConstraints={constraintsRef}
-            onDragEnd={(_, info) => {
-              if (zoom === 1) {
-                if (info.offset.x < -100) next();
-                else if (info.offset.x > 100) prev();
-              }
-            }}
-            className="max-w-full max-h-full object-contain touch-none"
+            className="max-w-full max-h-full object-contain"
             referrerPolicy="no-referrer"
+            alt={`Photo ${currentIndex + 1}`}
           />
-        </AnimatePresence>
+        </QuickPinchZoom>
 
-        {photos.length > 1 && zoom === 1 && (
+        {photos.length > 1 && (
           <>
-            <button onClick={prev} className="absolute left-4 p-4 text-white/50 hover:text-white">
+            <button onClick={prev} className="absolute left-4 p-4 text-white/30 hover:text-white transition-colors z-10">
               <ChevronLeft size={48} />
             </button>
-            <button onClick={next} className="absolute right-4 p-4 text-white/50 hover:text-white">
+            <button onClick={next} className="absolute right-4 p-4 text-white/30 hover:text-white transition-colors z-10">
               <ChevronRight size={48} />
             </button>
           </>
         )}
       </div>
 
-      <div className="absolute bottom-8 flex gap-2">
+      <div className="absolute bottom-8 flex gap-2 z-10">
         {photos.map((_, i) => (
-          <div key={`dot-${i}`} className={`w-2 h-2 rounded-full ${i === currentIndex ? 'bg-emerald-500' : 'bg-white/20'}`} />
+          <div key={`dot-${i}`} className={`w-2 h-2 rounded-full transition-all ${i === currentIndex ? 'bg-emerald-500 w-4' : 'bg-white/20'}`} />
         ))}
       </div>
     </motion.div>
@@ -504,6 +499,41 @@ export default function App() {
       ...prev,
       fertilizers: [...prev.fertilizers, { name: '', npk: '', amount: '' }]
     }));
+  };
+
+  const handleRetryAnalysis = async (entry: DiaryEntry) => {
+    if (!selectedGrow?.id) return;
+    setIsAnalyzing(true);
+    
+    try {
+      const analysis = await analyzeGrowEntry(entry.photos, entry.notes, selectedGrow);
+      
+      const updatedEntry: DiaryEntry = {
+        ...entry,
+        aiSuggestions: analysis.suggestions,
+        detectedStage: analysis.detectedStage as any,
+        aiAlerts: analysis.alerts,
+        idealPH: analysis.idealPH,
+        idealEC: analysis.idealEC,
+        fertCombination: analysis.fertCombination,
+      };
+
+      const updatedGrows = grows.map(g => {
+        if (g.id === selectedGrow.id) {
+          const updatedEntries = (g.entries || []).map(e => e.id === entry.id ? updatedEntry : e);
+          return { ...g, entries: updatedEntries };
+        }
+        return g;
+      });
+
+      setGrows(updatedGrows);
+      const updatedSelected = updatedGrows.find(g => g.id === selectedGrow.id);
+      if (updatedSelected) setSelectedGrow(updatedSelected);
+    } catch (error) {
+      console.error("Error retrying analysis:", error);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   const handleSaveEntry = async () => {
@@ -1048,7 +1078,15 @@ export default function App() {
                                   <Info size={14} className="text-emerald-500" />
                                   <p className="micro-label !text-emerald-500">Análise GrowMaster AI</p>
                                 </div>
-                                <div className="flex gap-2">
+                                <div className="flex items-center gap-3">
+                                  <button 
+                                    onClick={() => handleRetryAnalysis(entry)}
+                                    disabled={isAnalyzing}
+                                    className="text-[9px] font-black text-emerald-500/60 hover:text-emerald-500 uppercase tracking-widest flex items-center gap-1 transition-colors disabled:opacity-30"
+                                  >
+                                    <Maximize2 size={10} /> Refazer Análise
+                                  </button>
+                                  <div className="flex gap-2">
                                   {entry.idealPH && (
                                     <div className="px-2 py-1 bg-blue-500/10 rounded-lg border border-blue-500/20 flex flex-col items-center">
                                       <span className="text-[6px] font-black text-blue-400 uppercase">pH Ideal</span>
@@ -1061,6 +1099,7 @@ export default function App() {
                                       <span className="text-[9px] font-bold text-purple-400">{entry.idealEC}</span>
                                     </div>
                                   )}
+                                  </div>
                                 </div>
                               </div>
 
