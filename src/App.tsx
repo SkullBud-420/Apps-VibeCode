@@ -516,7 +516,7 @@ export default function App() {
         detectedStage: editingEntry?.detectedStage || selectedGrow.stage,
         alerts: editingEntry?.aiAlerts || [],
         idealPH: editingEntry?.idealPH || '',
-        idealEC: editingEntry?.idealPH || '',
+        idealEC: editingEntry?.idealEC || '',
         fertCombination: editingEntry?.fertCombination || ''
       };
       
