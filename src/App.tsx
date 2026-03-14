@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Grow, DiaryEntry, Fertilizer } from './types';
-import { analyzeGrowEntry, getDailyRecommendation, DailyRecommendation, saveApiKey, getStoredApiKey } from './services/geminiService';
+import { analyzeGrowEntry, getDailyRecommendation, DailyRecommendation } from './services/geminiService';
 import ReactMarkdown from 'react-markdown';
 import { format } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
@@ -341,8 +341,6 @@ export default function App() {
   const [viewingPhotos, setViewingPhotos] = useState<{ photos: string[], index: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ type: 'grow' | 'entry', id?: string } | null>(null);
   const [showBackupModal, setShowBackupModal] = useState(false);
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
 
   // Form States
   const [newGrow, setNewGrow] = useState({ 
@@ -752,13 +750,6 @@ export default function App() {
             title="Backup"
           >
             <Database size={20} />
-          </button>
-          <button 
-            onClick={() => { setApiKeyInput(getStoredApiKey()); setShowApiKeyModal(true); }}
-            className={`p-2 hover:bg-zinc-800 rounded-full ${getStoredApiKey() || process.env.GEMINI_API_KEY ? 'text-emerald-400' : 'text-rose-400'}`}
-            title="Chave API Gemini"
-          >
-            <FlaskConical size={20} />
           </button>
         </div>
       </header>
@@ -1751,73 +1742,6 @@ export default function App() {
         </AnimatePresence>
       </AnimatePresence>
 
-      {/* API Key Modal */}
-      {showApiKeyModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-6">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-zinc-900 border border-white/10 rounded-3xl p-6 w-full max-w-sm"
-          >
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-3">
-                <FlaskConical size={22} className="text-emerald-400" />
-                <h2 className="font-bold text-lg">Chave API Gemini</h2>
-              </div>
-              <button onClick={() => setShowApiKeyModal(false)} className="text-zinc-500 hover:text-white">
-                <X size={20} />
-              </button>
-            </div>
-
-            <p className="text-sm text-zinc-400 mb-4">
-              A análise por IA requer uma chave da API do Google Gemini. Obtenha a sua gratuitamente em{' '}
-              <span className="text-emerald-400 font-medium">aistudio.google.com</span>.
-            </p>
-
-            {(process.env.GEMINI_API_KEY) ? (
-              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-3 mb-4 text-sm text-emerald-400 flex items-center gap-2">
-                <CheckCircle2 size={16} />
-                Chave configurada via variável de ambiente.
-              </div>
-            ) : (
-              <>
-                <div className="mb-4">
-                  <input
-                    type="password"
-                    value={apiKeyInput}
-                    onChange={e => setApiKeyInput(e.target.value)}
-                    placeholder="Cole sua chave AIza..."
-                    className="w-full bg-zinc-800 border border-white/10 rounded-2xl px-4 py-3 text-sm text-white placeholder-zinc-600 focus:outline-none focus:border-emerald-500/50"
-                  />
-                </div>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      if (apiKeyInput.trim()) {
-                        saveApiKey(apiKeyInput.trim());
-                        setShowApiKeyModal(false);
-                      }
-                    }}
-                    disabled={!apiKeyInput.trim()}
-                    className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-2xl font-bold text-sm transition-all flex items-center justify-center gap-2"
-                  >
-                    <Save size={16} />
-                    Salvar
-                  </button>
-                  {getStoredApiKey() && (
-                    <button
-                      onClick={() => { localStorage.removeItem('growmaster_gemini_api_key'); setApiKeyInput(''); }}
-                      className="py-3 px-4 bg-zinc-800 hover:bg-rose-900/50 text-rose-400 rounded-2xl font-bold text-sm transition-all"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                </div>
-              </>
-            )}
-          </motion.div>
-        </div>
-      )}
       <div className="h-20" />
     </div>
     </ErrorBoundary>
