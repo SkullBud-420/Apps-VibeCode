@@ -1,14 +1,33 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
+const STORAGE_KEY = "growmaster_gemini_api_key";
+
 let aiInstance: GoogleGenAI | null = null;
+let lastUsedKey: string | null = null;
+
+export function saveApiKey(key: string) {
+  localStorage.setItem(STORAGE_KEY, key);
+  aiInstance = null; // reset instance so next call uses new key
+}
+
+export function getStoredApiKey(): string {
+  return localStorage.getItem(STORAGE_KEY) || "";
+}
+
+export function clearApiKey() {
+  localStorage.removeItem(STORAGE_KEY);
+  aiInstance = null;
+}
 
 function getAI() {
-  if (!aiInstance) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY is not defined. Please configure it in the Secrets panel.");
-    }
+  const apiKey = process.env.GEMINI_API_KEY || localStorage.getItem(STORAGE_KEY);
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY is not defined. Please configure it in the Secrets panel.");
+  }
+  // Reset instance if key changed
+  if (!aiInstance || lastUsedKey !== apiKey) {
     aiInstance = new GoogleGenAI({ apiKey });
+    lastUsedKey = apiKey;
   }
   return aiInstance;
 }
